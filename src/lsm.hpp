@@ -27,6 +27,7 @@
 #define LSM_H
 
 #include "run.hpp"
+#include "array.hpp"
 #include "skipList.hpp"
 #include "bloom.hpp"
 #include "diskLevel.hpp"
@@ -42,28 +43,46 @@
 template <class K, class V>
 class LSM {
     
-    typedef SkipList<K,V> RunType;
-    
+    // typedef SkipList<K,V> RunType;
+    // SkipList Lookups per second: 3.7037e+06 s
+    // SkipList Inserts per second: 9629.27 s
+
+
+    typedef Array<K,V> RunType; // i8*pow(10,3)/per second
+    // array:Inserts per second: 7579.2 s
+    // array:Lookups per second: 3.84615e+06 s
     
     
 public:
     V V_TOMBSTONE = (V) TOMBSTONE;
     mutex *mergeLock;
     
-    vector<Run<K,V> *> C_0;
+    vector<Run<K,V> *> C_0; // 内存部分，其实就是runs
     
-    vector<BloomFilter<K> *> filters;
-    vector<DiskLevel<K,V> *> diskLevels;
+    vector<BloomFilter<K> *> filters;  
+    vector<DiskLevel<K,V> *> diskLevels; // 磁盘部分，其实是levels
     
     LSM<K,V>(const LSM<K,V> &other) = default;
     LSM<K,V>(LSM<K,V> &&other) = default;
-    
+   
+    // run是什么
+    // run的个数
+    // 每个run有多少个元素
+    // 合并的系数阈值
+    // pageSize
+    // diskRunsPerLevel
+    // 有几个数据结构需要注意
+    // 1.RunType // typedef SkipList<K,V> RunType
+    // 2.BloomFilter
+    // 3.DiskLevel
+    // 4.Run
+    // 5.DiskRun
     LSM<K,V>(unsigned long eltsPerRun, unsigned int numRuns, double merged_frac, double bf_fp, unsigned int pageSize, unsigned int diskRunsPerLevel): _eltsPerRun(eltsPerRun), _num_runs(numRuns), _frac_runs_merged(merged_frac), _diskRunsPerLevel(diskRunsPerLevel), _num_to_merge(ceil(_frac_runs_merged * _num_runs)), _pageSize(pageSize){
         _activeRun = 0;
         _bfFalsePositiveRate = bf_fp;
         _n = 0;
         
-        
+        // 这个地方不应该是level为0吗，先建立第一层        
         DiskLevel<K,V> * diskLevel = new DiskLevel<K, V>(pageSize, 1, _num_to_merge * _eltsPerRun, _diskRunsPerLevel, ceil(_diskRunsPerLevel * _frac_runs_merged), _bfFalsePositiveRate);
         
         diskLevels.push_back(diskLevel);
@@ -95,6 +114,7 @@ public:
         
     }
     
+    // 写内存，有一个后端线程进行merge落盘
     void insert_key(K &key, V &value) {
         if (C_0[_activeRun]->num_elements() >= _eltsPerRun){
             ++_activeRun;
@@ -108,8 +128,11 @@ public:
         filters[_activeRun]->add(&key, sizeof(K));
     }
     
+    // 先在内存中查，再去磁盘中查询
+    // 先查内存，再查磁盘
     bool lookup(K &key, V &value){
         bool found = false;
+        // 从最新往后查，如果查到再返回
         for (int i = _activeRun; i >= 0; --i){
             if (key < C_0[i]->get_min() || key > C_0[i]->get_max() || !filters[i]->mayContain(&key, sizeof(K)))
                 continue;
@@ -242,10 +265,19 @@ public:
     unsigned long _n;
     thread mergeThread;
     
+    // 逐层往下合并。每层的runs的个数是一样的
+    // 每层run的size的大小不同，level越大，size越大
+    // 这样都可以逐渐merge来落盘。merge的过程其实是compact的过程
     void mergeRunsToLevel(int level) {
         bool isLast = false;
         
         if (level == _numDiskLevels){ // if this is the last level
+            // pageSize, level, runSize, numRuns, mergeSize, bf_fp
+            // runSize就是一个run的大小，也就是一个磁盘文件大小 = diskLevels[level - 1]->_runSize * diskLevels[level - 1]->_mergeSize
+            // numRuns就是一个level有多少个run, _diskRunsPerLevel 这个目前是lsm创建传入的
+            // mergeSize就是当前level如果要merge， merge多少个runs，ceil(_diskRunsPerLevel * _frac_runs_merged)
+            // bfFalsePositive就是bf显示可能在但是实际不在的概率。
+             
             DiskLevel<K,V> * newLevel = new DiskLevel<K, V>(_pageSize, level + 1, diskLevels[level - 1]->_runSize * diskLevels[level - 1]->_mergeSize, _diskRunsPerLevel, ceil(_diskRunsPerLevel * _frac_runs_merged), _bfFalsePositiveRate);
             diskLevels.push_back(newLevel);
             _numDiskLevels++;
@@ -265,11 +297,10 @@ public:
         diskLevels[level]->addRuns(runsToMerge, runLen, isLast);
         diskLevels[level - 1]->freeMergedRuns(runsToMerge);
         
-
-        
-        
-        
     }
+   
+   // 将内存的数据多个run写入到磁盘当前0层的activerun种。
+   // 写的时候加了锁---merge和写入，先merge腾出空间，然后落盘
     void merge_runs(vector<Run<K,V>*> runs_to_merge, vector<BloomFilter<K>*> bf_to_merge){
         vector<KVPair<K, V>> to_merge = vector<KVPair<K,V>>();
         to_merge.reserve(_eltsPerRun * _num_to_merge);
@@ -285,6 +316,7 @@ public:
         if (diskLevels[0]->levelFull()){
             mergeRunsToLevel(1);
         }
+        // 将数据写入到map中。
         diskLevels[0]->addRunByArray(&to_merge[0], to_merge.size());
         mergeLock->unlock();
         
@@ -304,6 +336,8 @@ public:
         }
         mergeThread = thread (&LSM::merge_runs, this, runs_to_merge,bf_to_merge); // comment for single threaded merging
 //        merge_runs(runs_to_merge, bf_to_merge); // uncomment for single threaded merging
+        
+        // freeMergedMemRuns
         C_0.erase(C_0.begin(), C_0.begin() + _num_to_merge);
         filters.erase(filters.begin(), filters.begin() + _num_to_merge);
         

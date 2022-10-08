@@ -35,12 +35,10 @@ struct KVPair {
     V value;
     
     // bool tombstone;
-    
-    
-    
     bool operator==(KVPair kv) const {
         return (kv.key == key && kv.value == value);
     }
+    
     bool operator!=(KVPair kv) const {
         return (kv.key != key != kv.value != value);
     }
@@ -62,6 +60,13 @@ struct KVPair {
     class Run {
         
     public:
+        // 增删改查
+        // 增改都是插入一条记录
+        // 删除是插入一个墓碑
+        // 关键是insert和lookup
+        // 范围查询
+        // 这个没有compact压缩，可能这个是跟算法相关了
+        // 
         virtual K get_min() = 0;
         virtual K get_max() = 0;
         virtual void insert_key(const K &key, const V &value) = 0;

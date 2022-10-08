@@ -19,7 +19,6 @@
 //        along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 #pragma once
-
 #ifndef SKIPLIST_H
 #define SKIPLIST_H
 #include <cstdint>
@@ -39,9 +38,7 @@ const double NODE_PROBABILITY = 0.5;
 
 template<class K,class V, unsigned MAXLEVEL>
 class SkipList_Node {
-   
-    
-    
+
 public:
     const K key;
     V value;

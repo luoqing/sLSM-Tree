@@ -57,10 +57,10 @@ public:
     }
     
     
-    KVPair_t *map;
-    int fd;
-    unsigned int pageSize;
-    BloomFilter<K> bf;
+    KVPair_t *map; // kv对数组的头指针
+    int fd; //文件fd，用于存储到磁盘
+    unsigned int pageSize; // page的大小
+    BloomFilter<K> bf; //判断key是否不在，要么一定不在，要么可能在
     
     K minKey = INT_MIN;
     K maxKey = INT_MIN;
@@ -96,7 +96,7 @@ public:
             exit(EXIT_FAILURE);
         }
         
-        
+        // mmap是什么意思
         map = (KVPair<K, V>*) mmap(0, filesize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         if (map == MAP_FAILED) {
             close(fd);
@@ -121,12 +121,17 @@ public:
     unsigned long getCapacity(){
         return _capacity;
     }
+    // 将run数组的数据拷贝到map中
     void writeData(const KVPair_t *run, const size_t offset, const unsigned long len) {
         
         memcpy(map + offset, run, len * sizeof(KVPair_t));
         _capacity = len;
         
     }
+
+    // 构建栅栏，稀疏索引
+    // 构建bloomfilter bf
+    // 数据是map的
     void constructIndex(){
         // construct fence pointers and write BF
 //        _fencePointers.resize(0);
@@ -147,7 +152,7 @@ public:
         maxKey = map[_capacity - 1].key;
         
     }
-    
+    // 从offset开始找，range是n
     unsigned long binary_search (const unsigned long offset, const unsigned long n, const K &key, bool &found) {
         if (n == 0){
             found = true;
@@ -170,6 +175,7 @@ public:
         return min;
     }
     
+    // 在稀疏索引中找到数据要查找的start, end
     void get_flanking_FP(const K &key, unsigned long &start, unsigned long &end){
         if (_iMaxFP == 0) {
             start = 0;

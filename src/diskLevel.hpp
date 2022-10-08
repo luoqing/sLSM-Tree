@@ -151,16 +151,19 @@ public: // TODO make some of these private
         while (h.size != 0){
             auto val_run_pair = h.pop();
             assert(val_run_pair != KVINTPAIRMAX); // TODO delete asserts
+            // 如果key相同，就看哪一个更新，second越大越新,覆盖更新
             if (lastKey == val_run_pair.first.key){
                 if( lastk < val_run_pair.second){
                     runs[_activeRun]->map[j] = val_run_pair.first;
                 }
             }
             else {
-                ++j;
+                // ++j;
+                // 删除的进行跳过， 这个地方是不是有一个bug，应该是遇到墓碑就可以跳过，而且不需要j++
                 if ( j != -1 && lastLevel && runs[_activeRun]->map[j].value == V_TOMBSTONE){
                     --j;
                 }
+                 ++j;
                 runs[_activeRun]->map[j] = val_run_pair.first;
             }
             
@@ -209,10 +212,12 @@ public: // TODO make some of these private
         assert(toFree.size() == _mergeSize);
         for (int i = 0; i < _mergeSize; i++){
             assert(toFree[i]->_level == _level);
-            delete toFree[i];
+            delete toFree[i]; // 删除指针指向的那块内存数据
         }
+        // 充值runs中存储的指针
         runs.erase(runs.begin(), runs.begin() + _mergeSize);
-        _activeRun -= _mergeSize;
+        _activeRun -= _mergeSize; // 去掉删除的，只剩下一些最新的，i发生改变了，要rename
+        // 现有的runs，runs进行重置
         for (int i = 0; i < _activeRun; i++){
 
             runs[i]->_runID = i;
@@ -226,6 +231,7 @@ public: // TODO make some of these private
             runs[i]->_filename = newName;
         }
         
+        // 进行新建一些空runs
         for (int i = _activeRun; i < _numRuns; i++){
             DiskRun<K, V> * newRun = new DiskRun<K,V>(_runSize, _pageSize, _level, i, _bf_fp);
             runs.push_back(newRun);

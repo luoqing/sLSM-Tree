@@ -37,13 +37,9 @@ template<class Key>
 class BloomFilter {
 public:
     BloomFilter(uint64_t n, double fp) {
-        
         double denom = 0.480453013918201; // (ln(2))^2
-
         double size = -1 * (double) n * (log(fp) / denom);
-        
         m_bits = vector<bool>((int) size);
-        
         double ln2 = 0.693147180559945;
         m_numHashes = (int) ceil( (size / n) * ln2);  // ln(2)
     }
@@ -69,6 +65,8 @@ public:
         }
     }
     
+    // 基于的是相同数据的hash值是一样的。
+    // 数据不同，尽可能让其hash值不同
     bool mayContain(const Key *data, size_t len) {
         auto hashValues = hash(data, len);
         

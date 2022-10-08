@@ -99,12 +99,12 @@ void insertLookupTest(){
 //    std::normal_distribution<double>  distribution(0, 10000000);
 
     
-    const int num_inserts = 1000000;
-    const int num_runs = 20;
-    const int buffer_capacity = 800;
+    const int num_inserts = 100;
+    const int num_runs = 5;
+    const int buffer_capacity = 8;
     const double bf_fp = .001;
     const int pageSize = 512;
-    const int disk_runs_per_level = 20;
+    const int disk_runs_per_level = 5;
     const double merge_fraction = 1;
     LSM<int32_t, int32_t> lsmTree = LSM<int32_t, int32_t>(buffer_capacity, num_runs,merge_fraction, bf_fp, pageSize, disk_runs_per_level);
     
@@ -119,8 +119,10 @@ void insertLookupTest(){
     clock_gettime(CLOCK_MONOTONIC, &start);
     for (int i = 0; i < num_inserts; i++) {
         if ( i % 100000 == 0 ) cout << "insert " << i << endl;
+        std::cout << "---insert key:" << to_insert[i] <<  " value:"  << i << endl;
+
         lsmTree.insert_key(to_insert[i],i);
-//        lsmTree.printElts();
+        lsmTree.printElts();
         
     }
     clock_gettime(CLOCK_MONOTONIC, &finish);
@@ -345,11 +347,11 @@ void fencePointerTest(){
 }
 
 void updateDeleteTest(){
-    const int num_inserts = 500;
+    const int num_inserts = 50;
     const int num_runs = 3;
-    const int buffer_capacity = 50;
+    const int buffer_capacity = 5;
     const double bf_fp = .01;
-    const int pageSize = 1024;
+    const int pageSize = 128;
     const int disk_runs_per_level = 2;
     const double merge_fraction = 1;
     LSM<int32_t, int32_t> lsmTree = LSM<int32_t, int32_t>(buffer_capacity, num_runs,merge_fraction, bf_fp, pageSize, disk_runs_per_level);
@@ -358,7 +360,7 @@ void updateDeleteTest(){
     for (int i = 0; i < num_inserts; i++) {
         to_insert.push_back(i);
     }
-    
+    cout << "-----------------insert [i, i]------------------------" << endl;
     for (int i = 0; i < num_inserts; i++) {
         lsmTree.insert_key(i, to_insert[i]);
     }
@@ -369,7 +371,7 @@ void updateDeleteTest(){
         assert(to_insert[i] == lookup);
     }
     lsmTree.printStats(); // this is a good demo
-    cout << "-----------------------------------------" << endl;
+    cout << "-----------------update [i, 499]------------------------" << endl;
     for (int i = 0; i < num_inserts; i++) {
         to_insert[i] = num_inserts - i;
     }
@@ -378,19 +380,23 @@ void updateDeleteTest(){
         lsmTree.insert_key(i, to_insert[i]);
     }
     lsmTree.printStats(); // this is a good demo
-    cout << "-----------------------------------------" << endl;
     for (int i = 0; i < num_inserts; i++) {
         lsmTree.lookup(i, lookup);
         assert(to_insert[i] == lookup);
-    }
-
+    }    
+    cout << "------------------delete-----------------------" << endl;
     for (int i = 0; i < num_inserts; i++) {
         lsmTree.delete_key(i);
 
     }
     lsmTree.printStats(); // this is a good demo
-    cout << "-----------------------------------------" << endl;
-
+    bool found = false;
+    for (int i = 0; i < num_inserts; i++) {
+        bool is_found = lsmTree.lookup(i, lookup);
+        assert(is_found == found);
+    }
+    
+    cout << "------------------insert -1-----------------------" << endl;
     int negone = -1;
     for (int i = 0; i < num_inserts * 10; i++) {
         lsmTree.insert_key(i,  negone);
@@ -672,6 +678,7 @@ void hardCodeTest(int num_inserts, int num_runs, int elts_per_run, double bf_fp,
         cout << num_inserts << "," << num_runs << "," << elts_per_run << "," << bf_fp << "," << merge_fraction << "," << pageSize << "," << disk_runs_per_level << "," << ipersec << "," << lpersec <<  "," << total_insert << "," << total_lookup << endl;
 }
 
+// 随机进行查询
 void updateLookupSkewTest(){
     std::random_device                  rand_dev;
     std::mt19937                        generator(rand_dev());
@@ -721,6 +728,7 @@ void updateLookupSkewTest(){
 
 }
 
+// 读取二进制文件
 void loadFromBin(LSM<int, int> &lsm, string filename){
     FILE *intArrayFile;
     long size;
@@ -756,6 +764,7 @@ void queryLine(LSM<int, int> &lsm, const string &line, vector<string> &strings){
     strings.clear();
     
     // Decompose statement
+    // split by space
     while( pos != string::npos ) {
         strings.push_back( line.substr( ip, pos - ip + 1 ) );
         ip = pos + 1;
@@ -767,13 +776,15 @@ void queryLine(LSM<int, int> &lsm, const string &line, vector<string> &strings){
     strings.push_back( line.substr( ip, (pos < line.size() ? pos : line.size()) - ip + 1 ) );
     
     switch ((char) strings[0].c_str()[0]){
-        case 'p':{
+        // insert
+        case 'i':{
             int pk = stoi(strings[1]);
             int v = stoi(strings[2]);
             lsm.insert_key(pk, v);
         }
             break;
-        case 'g': {
+        // query
+        case 'q': {
             int lk = stoi(strings[1]);
             int v;
             bool found = lsm.lookup(lk, v);
@@ -784,6 +795,7 @@ void queryLine(LSM<int, int> &lsm, const string &line, vector<string> &strings){
             cout << endl;
         }
             break;
+        // range
         case 'r':{
             int lk1 = stoi(strings[1]);
             int lk2 = stoi(strings[2]);
@@ -797,17 +809,19 @@ void queryLine(LSM<int, int> &lsm, const string &line, vector<string> &strings){
 
         }
             break;
+        // del
         case 'd': {
             int dk = stoi(strings[1]);
             lsm.delete_key(dk);
         }
             break;
+
         case 'l': {
             string ls = strings[1];
             loadFromBin(lsm, ls);
         }
             break;
-        case 's': {
+        case 'p': {
             lsm.printStats();
         }
             
@@ -818,14 +832,20 @@ void queryLine(LSM<int, int> &lsm, const string &line, vector<string> &strings){
 int main(int argc, char *argv[]){
 
 //    insertLookupTest();
-//    updateDeleteTest();
-//    rangeTest();
+//   updateDeleteTest();
+   rangeTest();
 //    rangeTimeTest();
 //    concurrentLookupTest();
 //    tailLatencyTest();
 //    cartesianTest();
 //    updateLookupSkewTest();
-    
+    return 0;
+    // eltsPerRun：每个run的元素个数， 800
+    // numRuns：内存中run的个数
+    // merged_frac:可以merge的比例
+    // bf_fp: 可能在但实际上不在的概率, FalsePositive
+    // pageSize： // 稀疏索引的分页大小
+    // diskRunsPerLevel:每个disklevel的runs的个数
     auto lsm = LSM<int, int>(800,20,1.0,0.00100,1024,20);
     auto strings = vector<string>(3);
     if (argc == 2){
@@ -852,16 +872,6 @@ int main(int argc, char *argv[]){
             }
         }
     }
-
-
-
-
-
-
-
-    
-    
-    
     return 0;
     
 }
